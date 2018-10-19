@@ -242,7 +242,7 @@ resnet_1 = resnet()
 class resnet(_fasterRCNN):
   def __init__(self, classes, num_layers=101, pretrained=False, class_agnostic=False):
     # 定义模型参数地址，进行迁移
-    self.model_path = 'data/pretrained_model/resnet101_caffe.pth'
+    self.model_path = 'data/pretrained_model/resnet101_caffe.pth'  # 借用的是caffe的模型参数，是否能在pytorch用？
     self.dout_base_model = 1024
     self.pretrained = pretrained
     self.class_agnostic = class_agnostic
@@ -251,28 +251,32 @@ class resnet(_fasterRCNN):
 
   def _init_modules(self):
     resnet = resnet101()
-
+    # 加载预训练模型
     if self.pretrained == True:
       print("Loading pretrained weights from %s" %(self.model_path))
       state_dict = torch.load(self.model_path)
       resnet.load_state_dict({k:v for k,v in state_dict.items() if k in resnet.state_dict()})
 
-    # Build resnet.
+    # 构造基础resnet, 包含初段+layer1+layer2_layer3 共计0-5的6个层
     self.RCNN_base = nn.Sequential(resnet.conv1, resnet.bn1,resnet.relu,
       resnet.maxpool,resnet.layer1,resnet.layer2,resnet.layer3)
-
+    
+    # 最后再接layer4, 但在layer4之前，会插入其他层比如RPN
     self.RCNN_top = nn.Sequential(resnet.layer4)
-
+    
+    # 再定义fc层计算分类得分
     self.RCNN_cls_score = nn.Linear(2048, self.n_classes)
+    # 再定义fc层
     if self.class_agnostic:
       self.RCNN_bbox_pred = nn.Linear(2048, 4)
     else:
       self.RCNN_bbox_pred = nn.Linear(2048, 4 * self.n_classes)
 
-    # Fix blocks
+    # 前面初段+layer1-2-3层的参数固定
     for p in self.RCNN_base[0].parameters(): p.requires_grad=False
     for p in self.RCNN_base[1].parameters(): p.requires_grad=False
-
+    
+    # 检测设置中需要固定3个layers中的几个：
     assert (0 <= cfg.RESNET.FIXED_BLOCKS < 4)
     if cfg.RESNET.FIXED_BLOCKS >= 3:
       for p in self.RCNN_base[6].parameters(): p.requires_grad=False
@@ -280,7 +284,8 @@ class resnet(_fasterRCNN):
       for p in self.RCNN_base[5].parameters(): p.requires_grad=False
     if cfg.RESNET.FIXED_BLOCKS >= 1:
       for p in self.RCNN_base[4].parameters(): p.requires_grad=False
-
+    
+    # 判断是否需要固定BN层参数
     def set_bn_fix(m):
       classname = m.__class__.__name__
       if classname.find('BatchNorm') != -1:
@@ -288,7 +293,9 @@ class resnet(_fasterRCNN):
 
     self.RCNN_base.apply(set_bn_fix)
     self.RCNN_top.apply(set_bn_fix)
-
+  
+    
+  # 训练模型
   def train(self, mode=True):
     # Override train so that the training mode is set as we want
     nn.Module.train(self, mode)
@@ -306,6 +313,7 @@ class resnet(_fasterRCNN):
       self.RCNN_base.apply(set_bn_eval)
       self.RCNN_top.apply(set_bn_eval)
 
+  # 定义
   def _head_to_tail(self, pool5):
     fc7 = self.RCNN_top(pool5).mean(3).mean(2)
     return fc7

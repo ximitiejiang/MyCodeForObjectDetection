@@ -41,18 +41,18 @@ import pdb
 from model.utils.net_utils import _smooth_l1_loss, _crop_pool_layer, _affine_grid_gen, _affine_theta
 # 导入
 
-class _fasterRCNN(nn.Module):
+class _fasterRCNN(nn.Module):  # 该模型会传入backbone模型作为其一部分
     """ faster RCNN """
     def __init__(self, classes, class_agnostic):
         super(_fasterRCNN, self).__init__()
-        self.classes = classes
+        self.classes = classes             # 多少类
         self.n_classes = len(classes)
         self.class_agnostic = class_agnostic
-        # loss
+        # 定义两个loss的初始值
         self.RCNN_loss_cls = 0
         self.RCNN_loss_bbox = 0
 
-        # define rpn
+        # 定义几个跟RPN相关的函数
         self.RCNN_rpn = _RPN(self.dout_base_model)
         self.RCNN_proposal_target = _ProposalTargetLayer(self.n_classes)
         self.RCNN_roi_pool = _RoIPooling(cfg.POOLING_SIZE, cfg.POOLING_SIZE, 1.0/16.0)
